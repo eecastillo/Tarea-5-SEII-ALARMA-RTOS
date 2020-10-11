@@ -51,6 +51,7 @@
 #define BIT_SEGUNDOS (1 << 0)
 #define BIT_MINUTOS (1 << 1)
 #define BIT_HORAS (1 << 2)
+#define ZERO_NOT 10u
 
 typedef enum
 {
@@ -70,7 +71,7 @@ typedef struct
 	uint8_t hours;
 	uint8_t minutes;
 	uint8_t seconds;
-} alarm_t;
+}clock_time_t;
 
 void second_task(void *parameters);
 void minute_task(void *parameters);
@@ -88,12 +89,12 @@ EventGroupHandle_t Group;
 
 SemaphoreHandle_t mutex;
 
+clock_time_t alarm;
 
 int main(void)
 {
-  alarm_t alarm;
 
-  alarm.seconds = 0;
+  alarm.seconds = 5;
   alarm.minutes = 0;
   alarm.hours = 0;
 
@@ -109,7 +110,7 @@ int main(void)
   xTaskCreate(second_task, "Seconds", configMINIMAL_STACK_SIZE, NULL, configMAX_PRIORITIES - 4, NULL);
   xTaskCreate(minute_task, "Minutes", configMINIMAL_STACK_SIZE, NULL, configMAX_PRIORITIES - 4, NULL);
   xTaskCreate(hour_task, "Hours", configMINIMAL_STACK_SIZE, NULL, configMAX_PRIORITIES - 4, NULL);
-  xTaskCreate(alarm_task, "Alarm", configMINIMAL_STACK_SIZE, NULL, configMAX_PRIORITIES - 4, NULL);
+  xTaskCreate(alarm_task, "Alarm", configMINIMAL_STACK_SIZE, NULL, configMAX_PRIORITIES - 3, NULL);
   xTaskCreate(print_task, "Print", configMINIMAL_STACK_SIZE, NULL, configMAX_PRIORITIES - 4, NULL);
 
   /* Force the counter to be placed into memory. */
@@ -123,7 +124,8 @@ int main(void)
   mutex = xSemaphoreCreateMutex();
 
   Group = xEventGroupCreate();
-
+  PRINTF("Configurado\n");
+  vTaskStartScheduler();
   while(1) {
       i++ ;
       /* 'Dummy' NOP to allow source level single stepping of
@@ -144,44 +146,50 @@ void alarm_task(void *parameters)
     xEventGroupValue = xEventGroupWaitBits(Group, xBitsToWaitFor, pdTRUE, pdTRUE, portMAX_DELAY);
 
     xSemaphoreTake(mutex, portMAX_DELAY);
-    PRINTF("ALARMA");
+    PRINTF("\nALARMA\n");
     xSemaphoreGive(mutex);
   }
 }
 
 void print_task(void *parameters)
 {
-  void* receiveData;
+  clock_time_t clock_time={0,0,0};
   time_msg_t message;
+  portBASE_TYPE xStatus;
+
   for(;;)
   {
     xSemaphoreTake(mutex, portMAX_DELAY);
-    PRINTF("Imprimir hora obtenida desde la Queue");
-    xQueueReceive(Queue, receiveData, portMAX_DELAY);
-    message = *((time_msg_t*)receiveData);
-    switch (message.time_type) {
-      case seconds_type:
-      if(message.value < 10)
-      {
-        PRINTF("0");
-      }
-      PRINTF("%d", message.value);
-      break;
-      case minutes_type:
-      if(message.value < 10)
-      {
-        PRINTF("0");
-      }
-      PRINTF("%d:", message.value);
-      break;
-      case hours_type:
-        if(message.value < 10)
-        {
-          PRINTF("0");
-        }
-        PRINTF("%d:", message.value);
-      break;
+    xQueueReceive(Queue, &message, portMAX_DELAY);
+    switch(message.time_type)
+    {
+    	case seconds_type:
+    		clock_time.seconds = message.value;
+    		break;
+    	case minutes_type:
+    		clock_time.minutes = message.value;
+    		break;
+    	case hours_type:
+    		clock_time.hours = message.value;
+    		break;
     }
+
+    //PRINTF("\e[1;1H\e[2J");
+      if(clock_time.hours < ZERO_NOT)
+      {
+    	  PRINTF("\r0");
+      }
+      PRINTF("%d:",clock_time.hours);
+      if(clock_time.minutes < ZERO_NOT)
+      {
+    	  PRINTF("0");
+      }
+      PRINTF("%d:",clock_time.minutes);
+      if(clock_time.seconds < ZERO_NOT)
+      {
+    	  PRINTF("0");
+      }
+      PRINTF("%d",clock_time.seconds);
     xSemaphoreGive(mutex);
   }
 }
@@ -192,25 +200,32 @@ void second_task(void *parameters)
   time_msg_t seconds_msg;
   seconds_msg.time_type=seconds_type;
   uint8_t counter_seconds = 0;
-  const EventBits_t secondsFlag = BIT_SEGUNDOS;
   TickType_t  xLastWakeTime = xTaskGetTickCount();
   TickType_t   xfactor = pdMS_TO_TICKS(1000);
+  portBASE_TYPE xStatus;
 
   while(true)
   {
+	if(counter_seconds == alarm.seconds)
+	{
+		xEventGroupSetBits(Group, BIT_SEGUNDOS);
+	}
     vTaskDelayUntil(&xLastWakeTime,xfactor);
-    seconds_msg.value = counter_seconds;
-    xQueueSendToBack(Queue,(void*)seconds_msg, portMAX_DELAY);
-    if(counter_seconds == alarm.seconds)
-    {
-      xEventGroupSetBits(Group, secondsFlag);
-    }
+   // PRINTF("segundos\n");
     counter_seconds++;
     if(counter_seconds >= 60)
     {
       counter_seconds = 0;
       xSemaphoreGive(Seconds);
     }
+    seconds_msg.value = counter_seconds;
+    xStatus = xQueueSendToBack(Queue,&seconds_msg, 0);
+    if (xStatus != pdPASS)
+	{
+	  /* We could not write to the queue because it was full � this must
+	   be an error as the queue should never contain more than one item! */
+	  PRINTF("Could not send to the queue.\r\n");
+	}
   }
 }
 void minute_task(void *parameters)
@@ -218,25 +233,29 @@ void minute_task(void *parameters)
   time_msg_t minutes_msg;
   minutes_msg.time_type=minutes_type;
   uint8_t counter_minutes = 0;
-  const EventBits_t minutesFlag = BIT_MINUTOS;
+  portBASE_TYPE xStatus;
 
   while(true)
   {
+	if(counter_minutes == alarm.minutes)
+	{
+	  xEventGroupSetBits(Group,BIT_MINUTOS);
+	}
     xSemaphoreTake(Seconds, portMAX_DELAY);
-    minutes_msg.value = counter_minutes;
-    xQueueSendToBack(Queue,(void*)minutes_msg, portMAX_DELAY);
-    if(counter_minutes == alarm.minutes)
-    {
-      xEventGroupSetBits(Group,minutesFlag);
-    }
     counter_minutes++;
     if(counter_minutes == 60)
     {
       counter_minutes = 0;
-
       xSemaphoreGive(Minutes);
     }
-
+    minutes_msg.value = counter_minutes;
+    xStatus = xQueueSendToBack(Queue,&minutes_msg, portMAX_DELAY);
+    if (xStatus != pdPASS)
+	{
+	  /* We could not write to the queue because it was full � this must
+	   be an error as the queue should never contain more than one item! */
+	  PRINTF("Could not send to the queue.\r\n");
+	}
   }
 }
 void hour_task(void *parameters)
@@ -244,22 +263,27 @@ void hour_task(void *parameters)
   time_msg_t hours_msg;
   hours_msg.time_type=hours_type;
   uint8_t counter_hours = 0;
-  const EventBits_t hoursFlag = BIT_HORAS;
+  portBASE_TYPE xStatus;
+
   while(true)
   {
-    xSemaphoreTake(Minutes, portMAX_DELAY);
-    hours_msg.value = counter_hours;
-    xQueueSendToBack(Queue,(void*)hours_msg, portMAX_DELAY);
     if(counter_hours == alarm.hours)
     {
-      xEventGroupSetBits(Group,hoursFlag);
+	  xEventGroupSetBits(Group,BIT_HORAS);
     }
+    xSemaphoreTake(Minutes, portMAX_DELAY);
     counter_hours++;
-
     if(counter_hours == 24)
     {
       counter_hours = 0;
     }
-
+    hours_msg.value = counter_hours;
+    xStatus = xQueueSendToBack(Queue,&hours_msg, portMAX_DELAY);
+    if (xStatus != pdPASS)
+	{
+	  /* We could not write to the queue because it was full � this must
+	   be an error as the queue should never contain more than one item! */
+	  PRINTF("Could not send to the queue.\r\n");
+	}
   }
 }
