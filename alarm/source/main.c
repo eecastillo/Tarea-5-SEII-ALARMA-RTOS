@@ -95,7 +95,7 @@ int main(void)
 {
 
   alarm.seconds = 5;
-  alarm.minutes = 0;
+  alarm.minutes = 1;
   alarm.hours = 0;
 
   /* Init board hardware. */
@@ -210,6 +210,10 @@ void second_task(void *parameters)
 	{
 		xEventGroupSetBits(Group, BIT_SEGUNDOS);
 	}
+	else
+	{
+		xEventGroupClearBits(Group, BIT_SEGUNDOS);
+	}
     vTaskDelayUntil(&xLastWakeTime,xfactor);
    // PRINTF("segundos\n");
     counter_seconds++;
@@ -241,6 +245,10 @@ void minute_task(void *parameters)
 	{
 	  xEventGroupSetBits(Group,BIT_MINUTOS);
 	}
+	else
+	{
+		xEventGroupClearBits(Group, BIT_MINUTOS);
+	}
     xSemaphoreTake(Seconds, portMAX_DELAY);
     counter_minutes++;
     if(counter_minutes == 60)
@@ -271,6 +279,10 @@ void hour_task(void *parameters)
     {
 	  xEventGroupSetBits(Group,BIT_HORAS);
     }
+	else
+	{
+		xEventGroupClearBits(Group, BIT_HORAS);
+	}
     xSemaphoreTake(Minutes, portMAX_DELAY);
     counter_hours++;
     if(counter_hours == 24)
