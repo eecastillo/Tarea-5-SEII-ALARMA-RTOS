@@ -1,5 +1,5 @@
 # Tarea 5
-## Eduardo Ethandrake Castillo Pulido ## Alejandro Gudiño Gallegos
+## Eduardo Ethandrake Castillo Pulido, Alejandro Gudiño Gallegos
 ## Funcionamiento General
 El funcionamiento en general es, por medio de freeRTOS, generar una interrupcion cada segundo. En ese segundo se imprime la hora y se aumentan los segundos, y en caso de ser necesario el minuto y la hora. Para la implementacion se usan semaforos binarios y mutex, para hacer la comunicacion entre las diferentes funciones.
 
